@@ -1,36 +1,43 @@
-name: Auto-tag Repo After Template Use
+name: Assign Topics Automatically
 
 on:
   push:
-    branches:
-      - main
-
-permissions:
-  contents: write
+    branches: [main]
+    # This ensures it runs only once after repo is created with initial push
 
 jobs:
-  tag-repo:
+  assign-topics:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      repository-projects: write
+      metadata: write
+
     steps:
-      - name: Extract repo name
+      - name: Extract Repo Info
         id: extract
         run: |
-          REPO_NAME="${{ github.repository }}"
-          REPO_ONLY="${REPO_NAME#*/}"
-          echo "repo_only=$REPO_ONLY" >> $GITHUB_OUTPUT
+          REPO="${GITHUB_REPOSITORY##*/}"
 
-      - name: Parse and set topics
+          echo "Full Repo Name: $REPO"
+
+          IFS='_' read -r INSTITUTE DEPT COURSE PROJECT SECTION TEAM <<< "$REPO"
+
+          echo "institute=$INSTITUTE" >> $GITHUB_OUTPUT
+          echo "department=$DEPT" >> $GITHUB_OUTPUT
+          echo "course=$COURSE" >> $GITHUB_OUTPUT
+          echo "project=$PROJECT" >> $GITHUB_OUTPUT
+          echo "section=$SECTION" >> $GITHUB_OUTPUT
+          echo "team_id=$TEAM" >> $GITHUB_OUTPUT
+
+      - name: Set Topics via GitHub API
         env:
-          GH_TOKEN: ${{ secrets.REPO_SETUP_TOKEN }}
-          REPO: ${{ github.repository }}
-          REPO_NAME: ${{ steps.extract.outputs.repo_only }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          IFS='_' read -r _ DEPT SUBJECT TITLE SECTION ID <<< "$REPO_NAME"
-
-          echo "Applying topics: $DEPT $SUBJECT $SECTION"
-
-          curl -X PATCH -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/$REPO \
-            -d "{\"topics\": [\"$DEPT\", \"$SUBJECT\", \"$SECTION\"]}"
+          gh api repos/${{ github.repository }} \
+            --method PUT \
+            -H "Accept: application/vnd.github.mercy-preview+json" \
+            -f name='${{ github.event.repository.name }}' \
+            -f description='Auto-tagged repository for ${{ steps.extract.outputs.project }} project' \
+            -F topics='${{ steps.extract.outputs.institute }},${{ steps.extract.outputs.department }},${{ steps.extract.outputs.course }},${{ steps.extract.outputs.project }},${{ steps.extract.outputs.section }},${{ steps.extract.outputs.team_id }}'
