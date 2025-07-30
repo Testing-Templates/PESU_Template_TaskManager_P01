@@ -1,0 +1,48 @@
+name: Initial Repository Setup
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  setup:
+    name: Setup Repo After First Commit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Add collaborators (example)
+        uses: peter-evans/create-or-update-comment@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: 1
+          body: |
+            ✅ Automated Setup Triggered!
+            Please wait while project-level configurations are applied.
+
+      - name: Configure Collaborators via API
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETUP_TOKEN }}  # Use a fine-grained PAT stored in org secrets
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          # Example collaborators to add (edit as needed)
+          curl -X PUT -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/$REPO_NAME/collaborators/username1 \
+            -d '{"permission":"push"}'
+
+          curl -X PUT -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/$REPO_NAME/collaborators/username2 \
+            -d '{"permission":"push"}'
+
+      - name: Success message
+        run: echo "✅ Repo initialized and collaborators added!"
