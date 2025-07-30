@@ -1,50 +1,57 @@
-name: Setup Repository
+name: Setup Repository Metadata
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
-
-permissions:
-  contents: write
+    paths:
+      - '.github/workflows/setup-repo.yml'
 
 jobs:
-  add-topics:
+  setup-metadata:
     runs-on: ubuntu-latest
+
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Extract Repository Info
         id: extract
         run: |
-          REPO_NAME="${{ github.event.repository.name }}"
+          echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> $GITHUB_OUTPUT
+          NAME_PARTS=$(echo "${GITHUB_REPOSITORY#*/}" | tr '_' '\n')
+          echo "${NAME_PARTS}" | nl
+          echo "TOPICS=[]" > topics.json
+          
+          mapfile -t parts <<< "$NAME_PARTS"
+          
+          # Predefined base topics
+          BASE_TOPICS=("template")
 
-          DEPT=$(echo "$REPO_NAME" | cut -d'_' -f2 | tr '[:upper:]' '[:lower:]')
-          COURSE=$(echo "$REPO_NAME" | cut -d'_' -f3 | tr '[:upper:]' '[:lower:]')
-          PROJECT=$(echo "$REPO_NAME" | cut -d'_' -f4 | tr '[:upper:]' '[:lower:]')
-          SECTION=$(echo "$REPO_NAME" | cut -d'_' -f5 | tr '[:upper:]' '[:lower:]')
+          for word in ${NAME_PARTS}; do
+            BASE_TOPICS+=("$(echo $word | tr '[:upper:]' '[:lower:]')")
+          done
 
-          echo "department=$DEPT" >> $GITHUB_OUTPUT
-          echo "course=$COURSE" >> $GITHUB_OUTPUT
-          echo "project=$PROJECT" >> $GITHUB_OUTPUT
-          echo "section=$SECTION" >> $GITHUB_OUTPUT
+          echo "TOPICS=$(jq -nc --argjson arr "$(printf '%s\n' "${BASE_TOPICS[@]}" | jq -R . | jq -s .)" '$arr')" >> $GITHUB_OUTPUT
 
-      - name: Add Topics
+      - name: Print Extracted Info
+        run: |
+          echo "Repo Name: ${{ steps.extract.outputs.REPO_NAME }}"
+          echo "Topics: ${{ steps.extract.outputs.TOPICS }}"
+
+      - name: Set Repository Topics
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PAT_TOKEN }}
           script: |
-            const topics = [
-              '${{ steps.extract.outputs.department }}',
-              '${{ steps.extract.outputs.course }}',
-              '${{ steps.extract.outputs.project }}',
-              '${{ steps.extract.outputs.section }}'
-            ];
-
-            const repo = context.repo;
+            const repo = context.repo.repo;
+            const owner = context.repo.owner;
+            const topics = JSON.parse(`${{ steps.extract.outputs.TOPICS }}`);
+            
             await github.rest.repos.replaceAllTopics({
-              owner: repo.owner,
-              repo: repo.repo,
+              owner,
+              repo,
               names: topics
             });
 
-            console.log("✅ Topics set: " + topics.join(', '));
+            console.log(`Topics set for ${repo}:`, topics);
