@@ -1,15 +1,15 @@
 name: Auto Setup for Student Repos
 
 on:
-  repository:
-    types: [created]
+  push:
+    branches:
+      - main  # Adjust if your default branch is different
 
 jobs:
   setup-student-repo:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      metadata: read
+      contents: write  # Required to update repo topics
 
     steps:
       - name: Skip setup for base template repo
@@ -29,7 +29,6 @@ jobs:
         run: |
           REPO_NAME="${GITHUB_REPOSITORY##*/}"
 
-          # Expecting 6 parts: PESU_CSE_SE_Project_A_P01
           IFS='_' read -r PREFIX DEPT COURSE PROJECT SECTION TEAM <<< "$REPO_NAME"
 
           if [[ "$PREFIX" != "PESU" || -z "$DEPT" || -z "$COURSE" || -z "$PROJECT" || -z "$SECTION" || -z "$TEAM" ]]; then
