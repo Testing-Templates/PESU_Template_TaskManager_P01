@@ -1,4 +1,4 @@
-name: Initial Repository Setup
+name: Auto-tag Repo After Template Use
 
 on:
   push:
@@ -7,42 +7,30 @@ on:
 
 permissions:
   contents: write
-  issues: write
-  pull-requests: write
 
 jobs:
-  setup:
-    name: Setup Repo After First Commit
+  tag-repo:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Add collaborators (example)
-        uses: peter-evans/create-or-update-comment@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: 1
-          body: |
-            ✅ Automated Setup Triggered!
-            Please wait while project-level configurations are applied.
-
-      - name: Configure Collaborators via API
-        env:
-          GH_TOKEN: ${{ secrets.REPO_SETUP_TOKEN }}  # Use a fine-grained PAT stored in org secrets
-          REPO_NAME: ${{ github.repository }}
+      - name: Extract repo name
+        id: extract
         run: |
-          # Example collaborators to add (edit as needed)
-          curl -X PUT -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/$REPO_NAME/collaborators/username1 \
-            -d '{"permission":"push"}'
+          REPO_NAME="${{ github.repository }}"
+          REPO_ONLY="${REPO_NAME#*/}"
+          echo "repo_only=$REPO_ONLY" >> $GITHUB_OUTPUT
 
-          curl -X PUT -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/$REPO_NAME/collaborators/username2 \
-            -d '{"permission":"push"}'
+      - name: Parse and set topics
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETUP_TOKEN }}
+          REPO: ${{ github.repository }}
+          REPO_NAME: ${{ steps.extract.outputs.repo_only }}
+        run: |
+          IFS='_' read -r _ DEPT SUBJECT TITLE SECTION ID <<< "$REPO_NAME"
 
-      - name: Success message
-        run: echo "✅ Repo initialized and collaborators added!"
+          echo "Applying topics: $DEPT $SUBJECT $SECTION"
+
+          curl -X PATCH -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/$REPO \
+            -d "{\"topics\": [\"$DEPT\", \"$SUBJECT\", \"$SECTION\"]}"
