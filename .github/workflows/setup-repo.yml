@@ -2,56 +2,58 @@ name: Setup Repository Metadata
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/setup-repo.yml'
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  setup-metadata:
+  setup:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+    - name: Extract Metadata from Repo Name
+      id: extract
+      run: |
+        REPO_NAME="${GITHUB_REPOSITORY##*/}"
 
-      - name: Extract Repository Info
-        id: extract
-        run: |
-          echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> $GITHUB_OUTPUT
-          NAME_PARTS=$(echo "${GITHUB_REPOSITORY#*/}" | tr '_' '\n')
-          echo "${NAME_PARTS}" | nl
-          echo "TOPICS=[]" > topics.json
-          
-          mapfile -t parts <<< "$NAME_PARTS"
-          
-          # Predefined base topics
-          BASE_TOPICS=("template")
+        # Expected format: PESU_CSE_SE_TaskManager_A_P01
+        if [[ "$REPO_NAME" =~ PESU_([A-Z]+)_([A-Z]+)_(.+)_([A-Z])_P([0-9]+) ]]; then
+          DEPARTMENT="${BASH_REMATCH[1]}"
+          COURSE="${BASH_REMATCH[2]}"
+          PROJECT="${BASH_REMATCH[3]}"
+          SECTION="${BASH_REMATCH[4]}"
+          PID="P${BASH_REMATCH[5]}"
 
-          for word in ${NAME_PARTS}; do
-            BASE_TOPICS+=("$(echo $word | tr '[:upper:]' '[:lower:]')")
-          done
+          echo "department=$DEPARTMENT" >> $GITHUB_OUTPUT
+          echo "course=$COURSE" >> $GITHUB_OUTPUT
+          echo "project=$PROJECT" >> $GITHUB_OUTPUT
+          echo "section=$SECTION" >> $GITHUB_OUTPUT
+          echo "project_id=$PID" >> $GITHUB_OUTPUT
 
-          echo "TOPICS=$(jq -nc --argjson arr "$(printf '%s\n' "${BASE_TOPICS[@]}" | jq -R . | jq -s .)" '$arr')" >> $GITHUB_OUTPUT
+          TOPICS=$(jq -nc --arg d "$DEPARTMENT" --arg c "$COURSE" --arg p "$PROJECT" --arg s "$SECTION" --arg pid "$PID" \
+            '[ "pesu", "template-based", "autotag", $d, $c, $p, $s, $pid ]')
+          echo "TOPICS=$TOPICS" >> $GITHUB_OUTPUT
+        else
+          echo "::error title=Invalid Repository Name::Repo name '$REPO_NAME' does not match expected pattern."
+          exit 1
+        fi
 
-      - name: Print Extracted Info
-        run: |
-          echo "Repo Name: ${{ steps.extract.outputs.REPO_NAME }}"
-          echo "Topics: ${{ steps.extract.outputs.TOPICS }}"
+    - name: Set Repository Topics
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+        script: |
+          const repo = context.repo.repo;
+          const owner = context.repo.owner;
+          const topics = JSON.parse(`${{ steps.extract.outputs.TOPICS }}`);
 
-      - name: Set Repository Topics
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.PAT_TOKEN }}
-          script: |
-            const repo = context.repo.repo;
-            const owner = context.repo.owner;
-            const topics = JSON.parse(`${{ steps.extract.outputs.TOPICS }}`);
-            
-            await github.rest.repos.replaceAllTopics({
+          try {
+            const result = await github.rest.repos.replaceAllTopics({
               owner,
               repo,
               names: topics
             });
-
-            console.log(`Topics set for ${repo}:`, topics);
+            console.log(`✅ Topics set for ${repo}:`, topics);
+          } catch (error) {
+            core.warning("⚠️ Failed to set topics. Make sure PAT_TOKEN is available for private repos.");
+            core.warning(error.message);
+          }
